@@ -173,6 +173,15 @@ if not get_option('snpe-support').disabled()
   endif
 endif
 
+# tvm
+tvm_dep = dependency('', required: false)
+if not get_option('tvm-support').disabled()
+  tvm_dep = dependency('tvm', required: false)
+  if not tvm_dep.found()
+    tvm_dep = cxx.find_library('tvm', required: get_option('tvm-support'))
+  endif
+endif
+
 # tensorrt
 nvinfer_dep = dependency('', required: false)
 nvparsers_dep = dependency('', required: false)
@@ -296,6 +305,9 @@ features = {
   'lua-support': {
     'target': 'lua',
     'project_args': { 'ENABLE_LUA' : 1}
+  },
+  'tvm-support': {
+    'extra_deps': [ tvm_dep ]
   }
 }
 
