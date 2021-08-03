@@ -38,6 +38,8 @@ typedef enum
   _TENSOR_QUERY_CMD_TRANSFER_START = 0,
   _TENSOR_QUERY_CMD_TRANSFER_DATA = 1,
   _TENSOR_QUERY_CMD_TRANSFER_END = 2,
+  _TENSOR_QUERY_CMD_TRANSFER_APPROVE = 3,
+  _TENSOR_QUERY_CMD_TRANSFER_DENY = 4,
   _TENSOR_QUERY_CMD_END
 } TensorQueryCommand;
 
@@ -75,32 +77,57 @@ typedef struct
 } TensorQueryCommandData;
 
 /**
- * @brief generate unique id.
- * @return unique id if OK, 0 if error
- */
-extern uint64_t
-nnstreamer_query_request_id (const char *ip, uint32_t port, int is_client);
-
-/**
  * @brief connect to the specified address.
  * @return 0 if OK, negative value if error
  */
 extern int
-nnstreamer_query_connect (uint64_t id, const char *ip, uint32_t port, uint32_t timeout_ms);
+nnstreamer_query_connect (void * connection, const char *ip, uint32_t port, uint32_t timeout_ms);
 
 /**
  * @brief send command to connected device.
  * @return 0 if OK, negative value if error
  */
 extern int
-nnstreamer_query_send (uint64_t id, TensorQueryCommandData *data, uint32_t timeout_ms);
+nnstreamer_query_send (void * connection, TensorQueryCommandData *data, uint32_t timeout_ms);
 
 /**
  * @brief receive command from connected device.
  * @return 0 if OK, negative value if error
  */
 extern int
-nnstreamer_query_receive (uint64_t id, TensorQueryCommandData *data, uint32_t timeout_ms);
+nnstreamer_query_receive (void * connection, TensorQueryCommandData *data, uint32_t timeout_ms);
+
+/**
+ * @brief close connection with corresponding id.
+ * @return 0 if OK, negative value if error
+ */
+extern int
+nnstreamer_query_close (void * connection);
+
+/* server */
+extern void *
+nnstreamer_query_server_accept (void *server_data);
+
+/**
+ * @brief return initialized server_data
+ * @param src_info tensors info shared with serversrc element
+ */
+extern void *
+nnstreamer_query_server_data_init (void);
+
+/**
+ * @brief free server_data
+ */
+extern void
+nnstreamer_query_server_data_free (void * server_data);
+
+/**
+ * @brief set server_data params and setup server
+ * @return 0 if OK, negative value if error 
+ */
+extern int
+nnstreamer_query_server_data_setup (void * server_data, TensorQueryProtocol protocol, const char * host, uint32_t port);
+
 
 #ifdef __cplusplus
 }
