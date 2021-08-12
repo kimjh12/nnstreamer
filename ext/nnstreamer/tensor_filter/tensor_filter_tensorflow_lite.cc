@@ -235,6 +235,8 @@ class TFLiteCore
   int invoke (const GstTensorMemory *input, GstTensorMemory *output);
   /** @brief cache input and output tensor ptr before invoke */
   int cacheInOutTensorPtr ();
+  /** @brief callback method to delete interpreter for shared model */
+  friend void free_interpreter (void *instance);
 
   private:
   int num_threads;
@@ -253,6 +255,8 @@ extern "C" {
 void init_filter_tflite (void) __attribute__ ((constructor));
 void fini_filter_tflite (void) __attribute__ ((destructor));
 }
+
+G_LOCK_DEFINE_STATIC (slock);
 
 /**
  * @brief TFLiteInterpreter constructor
@@ -732,27 +736,29 @@ TFLiteCore::TFLiteCore (const GstTensorFilterProperties *prop)
 }
 
 /**
+ * @brief callback method to destroy interpreter for shared model
+ * @param interpreter TFLiteInterpreter*
+ */
+void free_interpreter (void * interpreter) {
+  TFLiteInterpreter * self = reinterpret_cast <TFLiteInterpreter *> (interpreter);
+  delete self;
+}
+
+/**
  * @brief	TFLiteCore destructor
  */
 TFLiteCore::~TFLiteCore ()
 {
   if (shared_tensor_filter_key) {
-    if (nnstreamer_filter_shared_table_remove_this (shared_tensor_filter_key, this)) {
-      if (nnstreamer_filter_referred_list_length (shared_tensor_filter_key) == 0) {
-        /* if there is no more referred instance, remove the key from the shared table */
-        nnstreamer_filter_shared_table_remove (shared_tensor_filter_key);
-        /**
-         * @todo the below g_free () should be moved to the last of ~TFLiteCore () method
-         * To remove it, the has table lookup should be changed. 
-         */
-        g_free (shared_tensor_filter_key);
-        delete interpreter;
-      }
+    G_LOCK (slock);
+    if (!nnstreamer_filter_shared_model_remove (this, shared_tensor_filter_key, free_interpreter)) {
+      nns_loge ("failed to remove shared model");
     }
-  } else {
-    delete interpreter;
-    /** @todo should be removed */
+    G_UNLOCK (slock);
     g_free (shared_tensor_filter_key);
+  }
+  else {
+    delete interpreter;
   }
 }
 
@@ -765,30 +771,29 @@ TFLiteCore::~TFLiteCore ()
 void
 TFLiteCore::checkSharedInterpreter (const GstTensorFilterProperties * prop)
 {
-  TFLiteInterpreter * ref = (TFLiteInterpreter *) nnstreamer_filter_get_shared_model_representation (shared_tensor_filter_key);
-  if (ref) {
-    if (g_strcmp0 (prop->model_files[0],
-            ref->getModelPath ()) != 0) {
-      ml_loge ("The model paths are different between the tensor filters!");
-      return;
-    }
-    if (!nnstreamer_filter_shared_table_insert (shared_tensor_filter_key, NULL, this)) {
-      ml_loge ("Failed to share the model representation!");
-      return;
-    }
-    interpreter = ref;
-  }
-  else {
-    interpreter = new TFLiteInterpreter ();
-    if (!nnstreamer_filter_shared_table_insert (shared_tensor_filter_key, interpreter, this)) {
-      ml_loge ("Failed to share the model representation!");
-      delete interpreter;
-      return;
-    }
-  }
+  G_LOCK (slock);
+  interpreter = (TFLiteInterpreter *) nnstreamer_filter_shared_model_get (this, shared_tensor_filter_key);
 
-  ml_logd ("The model representation is shared: key=[%s], num of share: %u",
-      shared_tensor_filter_key, nnstreamer_filter_referred_list_length (shared_tensor_filter_key));
+  if (!interpreter) {
+    /* create new interpreter */
+    TFLiteInterpreter *new_interpreter = new TFLiteInterpreter ();
+    interpreter = (TFLiteInterpreter *) nnstreamer_filter_shared_model_insert_and_get (this, shared_tensor_filter_key, new_interpreter);
+    if (!interpreter) {
+      G_UNLOCK (slock);
+      ml_loge ("Failed to insert the model representation!");
+      delete new_interpreter;
+      return;
+    }
+  }
+  /* shared model exists */
+  else if (g_strcmp0 (prop->model_files[0], interpreter->getModelPath ()) != 0) {
+    G_UNLOCK (slock);
+    ml_loge ("The model paths are different between the tensor filters!");
+    return;
+  }
+  G_UNLOCK (slock);
+
+  ml_logd ("The model representation is shared: key=[%s]", shared_tensor_filter_key);
 }
 
 /**
