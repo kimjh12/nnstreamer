@@ -2923,3 +2923,34 @@ nnstreamer_filter_shared_model_remove (void *instance, const char *key,
 
   return ret;
 }
+
+/* extern functions for shared model representation table */
+
+void
+nnstreamer_filter_shared_model_replace (void *instance, const char *key, void *interpreter, void (*replace_callback) (void *, void *), void (*free_callback) (void*))
+{
+  GstTensorFilterSharedModelRepresenatation *model_rep;
+  GList *itr;
+
+  if (!shared_model_table) {
+    ml_loge ("The shared model representation is not supported properly!");
+    return;
+  }
+  if (!key) {
+    ml_loge ("The key should NOT be NULL!");
+    return;
+  }
+
+  g_mutex_lock (&mutex);
+  model_rep = g_hash_table_lookup (shared_model_table, key);
+  if (model_rep) {
+    itr = model_rep->referred_list;
+    while (itr) {
+      replace_callback (instance, interpreter);
+      itr = itr->next;
+    }
+  }
+  free_callback (model_rep->shared_interpreter);
+  model_rep->shared_interpreter = interpreter;
+  g_mutex_unlock (&mutex);
+}
